@@ -3,20 +3,6 @@ export type PageT = {
   link: string,  
 }
 
-export type TeamMemberT = {
-  name: string,
-  title: string,
-  slug: string,
-  image: string,
-  intro: string,
-  techStack: TechStackT[],
-}
-
-export type TechStackT = { 
-  name: string, 
-  icon: string
-}
-
 export interface LoginRequestT {
   email: string;
   password: string;

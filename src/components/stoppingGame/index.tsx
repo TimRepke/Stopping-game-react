@@ -1,326 +1,288 @@
-import React, { useEffect, useState, useRef } from "react";
-import Papa from "papaparse";
+import * as React from "react";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-} from "recharts";
+  Box,
+  Button,
+  ButtonGroup,
+  CircularProgress,
+  Grid,
+  MenuItem,
+  Modal,
+  Paper,
+  Stack,
+  Typography,
+  useTheme,
+} from "@mui/material";
+import { SubmitModal } from "./SubmitModal";
+import SessionLeaderboardCard from "./SessionLeaderboardCard";
+import { useGetDatasetsQuery, type DatasetT } from "../../redux/api/gameApi";
+import { useSearchParams } from "react-router-dom";
+import type { resultT } from "../../redux/api/gameResult";
+import Chart from "./Chart";
+import { CalcScore, lerpColor } from "../../lib/helper";
+import SetInfoCard from "./SetInfoCard";
+import ProgressBlock from "./ProgressBlock";
+import SpeedIcon from "@mui/icons-material/Speed";
 
-interface Row {
-  dataset: string;
-  sim_rep: number;
-  batch_i: number;
-  n_total: number;
-  n_seen: number;
-  n_incl: number;
-  n_incl_seen: number;
-  method: string;
-  safe_to_stop: boolean;
-  method_score: number;
-  method_confidence_level: number;
-  method_bias: number;
-  method_recall_target: number; // NEW FIELD
-}
-
-const AUTO_INTERVAL = 50; // ms per batch
 
 const StoppingGame: React.FC = () => {
-  const [csvRows, setCsvRows] = useState<Row[]>([]);
-  const [filteredRows, setFilteredRows] = useState<Row[]>([]);
+  const [searchParams] = useSearchParams();
 
-  const [selectedDataset, setSelectedDataset] = useState("");
-  const [selectedMethod, setSelectedMethod] = useState("");
-  const [selectedConfidence, setSelectedConfidence] = useState<number | null>(null);
-  const [selectedBias, setSelectedBias] = useState<number | null>(null);
-  const [selectedRecallTarget, setSelectedRecallTarget] = useState<number | null>(null); // NEW
+  const theme = useTheme()
 
-  const [currentBatch, setCurrentBatch] = useState(0);
-  const [autoPlay, setAutoPlay] = useState(false);
+  const setIds = searchParams.get("sets")?.split(',').map(itm => parseInt(itm)) ?? [];
+  // const sessionId = searchParams.get("session") ? Number(searchParams.get("session")) : 50;
+  // const sessionPlayersData = React.useState({})
+  const [results, setResults] = React.useState<resultT[]>([])
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [autoPlay, setAutoPlay] = React.useState<boolean>(false);
 
-  // ---------------------------------------
-  // AUTO PLAY
-  // ---------------------------------------
-  useEffect(() => {
-    if (autoPlay && filteredRows.length > 0) {
-      intervalRef.current = setInterval(() => {
-        setCurrentBatch((prev) =>
-          prev < filteredRows.length - 1 ? prev + 1 : prev
-        );
-      }, AUTO_INTERVAL);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+
+  const { data: dataSets, isLoading: dataIsLoading } = useGetDatasetsQuery(setIds)
+
+  const [currentSet , setCurrentSet] = React.useState<DatasetT | null>(null)
+  const [sessionStarted, setSessionStarted] = React.useState<boolean>(false)
+  const [currentSetStarted, setCurrentSetStarted] = React.useState<boolean>(false)
+
+  const [currentRowIndex, setCurrentRowIndex] = React.useState<number>(0);
+  const [currentSetIndex, setCurrentSetIndex] = React.useState<number>(0);
+  const [lastRowIndex, setLastRowIndex] = React.useState<number>(0);
+
+  const [isModalOpen, setIsModalOpen] = React.useState<boolean>(false);
+
+  const type = Number(searchParams.get("type"));
+  const defaultGameSpeed = searchParams.get("speed") ? Number(searchParams.get("speed")) : 50;
+  const [gameSpeed, setGameSpeed] = React.useState<number>(defaultGameSpeed);
+  const [speedSetting, SetSpeedSetting] = React.useState<number>(0);
+
+  React.useEffect(()=>{
+    switch (speedSetting) {
+      case 0:
+        setGameSpeed(defaultGameSpeed)
+        break
+      case 1:
+        setGameSpeed(defaultGameSpeed / 2)
+        break
+      case 2:
+        setGameSpeed(defaultGameSpeed / 5)
+        break
+      case 3:
+        setGameSpeed(defaultGameSpeed * 2)
+        break
+      case 4:
+        setGameSpeed(defaultGameSpeed * 5)
+        break
+      default:
+        setGameSpeed(defaultGameSpeed)
+        break
+    }
+  },[defaultGameSpeed, speedSetting])
+
+
+  // if (currentSet !== null && !currentSet.rows) {
+  //   return (<></>)
+  // }
+
+  React.useEffect(()=>{
+    if (dataSets && !dataIsLoading && !sessionStarted){
+      setCurrentSet(dataSets[0])
+      setCurrentRowIndex(0)
+      setCurrentSetIndex(0)
+      setLastRowIndex(currentSet?.rows?.length ?? 0)
+    }
+  },[currentSet?.rows?.length, dataIsLoading, dataSets, sessionStarted])
+
+  const stopAuto = () => {
+    setAutoPlay(false)
+    saveCurrentResults()
+    // setCurrentSetIndex((v) => v < (dataSets?.length ?? 0) ? v+1 : v)
+  };
+
+  const saveCurrentResults = () => {
+    if (!currentSet || !currentSet.rows) return
+    const result: resultT = {
+      userId: 0,
+      datasetId: currentSet?.id,
+      sessionId: 0,
+      stoppingStep: currentRowIndex,
+      score: CalcScore(currentSet.rows[currentRowIndex]),
     }
 
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [autoPlay, filteredRows]);
+    setResults(res => [...res, result])
+  }
 
-  // ---------------------------------------
-  // CSV LOAD
-  // ---------------------------------------
-  const handleFileUpload = (file: File) => {
-    Papa.parse(file, {
-      header: true,
-      dynamicTyping: true,
-      complete: (results) => {
-        setCsvRows(results.data as Row[]);
-      },
-    });
-  };
-
-  // ---------------------------------------
-  // APPLY FILTERS
-  // ---------------------------------------
-  const applyFilters = () => {
-    const filtered = csvRows
-      .filter(
-        (r) =>
-          r.dataset === selectedDataset &&
-          r.method === selectedMethod &&
-          r.method_confidence_level === selectedConfidence &&
-          r.method_bias === selectedBias &&
-          r.method_recall_target === selectedRecallTarget
-      )
-      .sort((a, b) => a.batch_i - b.batch_i);
-
-    setFilteredRows(filtered);
-    setCurrentBatch(0);
-
-    if (filtered.length > 0) setAutoPlay(true);
-  };
-
-  // ---------------------------------------
-  // MANUAL CONTROLS
-  // ---------------------------------------
-  const nextBatch = () => {
-    setAutoPlay(false);
-    setCurrentBatch((prev) =>
-      prev < filteredRows.length - 1 ? prev + 1 : prev
-    );
-  };
-
-  const prevBatch = () => {
-    setAutoPlay(false);
-    setCurrentBatch((prev) => (prev > 0 ? prev - 1 : 0));
-  };
-
-  const stopAuto = () => setAutoPlay(false);
   const startAuto = () => {
-    if (filteredRows.length > 0) setAutoPlay(true);
+    if (!currentSet || !currentSet.rows) return
+    if (currentSet.rows.length > 0) {
+      setCurrentSetStarted(true)
+      setAutoPlay(true);
+    }
   };
 
-  // ---------------------------------------
-  // CHART DATA
-  // ---------------------------------------
-  const chartData = filteredRows.slice(0, currentBatch + 1).map((r) => ({
-    batch: r.batch_i,
-    seen: r.n_seen,
-    included: r.n_incl,
-    included_seen: r.n_incl_seen, //((r.n_incl_seen / r.n_incl) / (r.n_seen / r.n_total)) * r.n_seen,
-    score: r.method_score,// (r.method_score * (r.n_seen / r.n_total)) * r.n_seen,
-  }));
+  const HandleReset = () => {
+    setCurrentSetStarted(false)
+    setAutoPlay(false)
+    setCurrentRowIndex(0)
+  }
 
-  // Current numerical values (for display)
-  const currentRow = filteredRows[currentBatch] || null;
-
-  // ---------------------------------------
-  // DROPDOWN OPTIONS
-  // ---------------------------------------
-  const datasets = [...new Set(csvRows.map((r) => r.dataset))];
-  const methods = [...new Set(csvRows.map((r) => r.method))];
-  const confidenceLevels = [...new Set(csvRows.map((r) => r.method_confidence_level))];
-  const biases = [...new Set(csvRows.map((r) => r.method_bias))];
-  const recallTargets = [...new Set(csvRows.map((r) => r.method_recall_target))];
-
-  // ---------------------------------------
-  // RENDER
-  // ---------------------------------------
   return (
-    <div style={{ padding: 20 }}>
-      <h1>Stopping Method Game</h1>
+    <Grid container spacing={2} padding={2} sx={{ justifyContent:"space-between" }}>
+      <Grid size={9}>
+        <Stack>
+          <Grid spacing={2} padding={2}>
+            {currentSet === null || !currentSet.rows ? (<CircularProgress />) : (
+              <Stack spacing={1}>
+                <ProgressBlock
+                  label="Seen"
+                  current={currentSet.rows[currentRowIndex].n_seen}
+                  total={currentSet.rows[currentRowIndex].n_total}
+                  value={currentSet.rows[currentRowIndex].n_seen / currentSet.rows[currentRowIndex].n_total * 100}
+                  barColor={lerpColor(
+                    theme.palette.success.main,
+                    theme.palette.error.main,
+                    currentSet.rows[currentRowIndex].n_seen / currentSet.rows[currentRowIndex].n_total
+                  )}
+                />
 
-      {/* CSV UPLOAD */}
-      <input
-        type="file"
-        accept=".csv"
-        onChange={(e) => {
-          if (e.target.files) handleFileUpload(e.target.files[0]);
-        }}
-      />
+                <ProgressBlock
+                  label="Included"
+                  current={currentSet.rows[currentRowIndex].n_incl_seen}
+                  total={currentSet.rows[currentRowIndex].n_incl}
+                  value={currentSet.rows[currentRowIndex].n_incl_seen / currentSet.rows[currentRowIndex].n_incl * 100}
+                  barColor={lerpColor(
+                    theme.palette.error.main,
+                    theme.palette.success.main,
+                    currentSet.rows[currentRowIndex].n_incl_seen / currentSet.rows[currentRowIndex].n_incl
+                  )}
+                />
 
-      {csvRows.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <h2>Select Configuration</h2>
+                <Chart 
+                  data={currentSet.rows} 
+                  currentRowIndex={currentRowIndex}
+                  lastRowIndex={lastRowIndex}
+                  setCurrentRowIndex={setCurrentRowIndex} 
+                  gameSpeed={gameSpeed} 
+                  autoPlay={autoPlay}
+                  stopMethod={() => stopAuto()}
+                />
+                <Grid container justifyContent="center" padding={2}>
+                  <Stack spacing={1} alignItems="center">
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <SpeedIcon fontSize="small" color="action" />
+                      <Typography variant="body2" color="text.secondary">
+                        Game Speed
+                      </Typography>
+                    </Stack>
 
-          {/* DATASET */}
-          <select
-            value={selectedDataset}
-            onChange={(e) => setSelectedDataset(e.target.value)}
-          >
-            <option value="">Dataset</option>
-            {datasets.map((d) => (
-              <option key={d}>{d}</option>
-            ))}
-          </select>
+                    <ButtonGroup
+                      variant="contained"
+                      size="small"
+                      sx={{
+                        borderRadius: 999,
+                        overflow: "hidden",
+                        "& .MuiButton-root": {
+                          px: 2,
+                          textTransform: "none",
+                          fontWeight: 600,
+                          transition: "all 0.2s ease",
+                        },
+                      }}
+                    >
+                      <Button
+                        disabled={speedSetting === 4}
+                        onClick={() => SetSpeedSetting(4)}
+                      >
+                        0.2×
+                      </Button>
 
-          {/* METHOD */}
-          <select
-            value={selectedMethod}
-            onChange={(e) => setSelectedMethod(e.target.value)}
-            style={{ marginLeft: 10 }}
-          >
-            <option value="">Method</option>
-            {methods.map((m) => (
-              <option key={m}>{m}</option>
-            ))}
-          </select>
+                      <Button
+                        disabled={speedSetting === 3}
+                        onClick={() => SetSpeedSetting(3)}
+                      >
+                        0.5×
+                      </Button>
 
-          {/* CONFIDENCE */}
-          <select
-            value={selectedConfidence ?? ""}
-            onChange={(e) =>
-              setSelectedConfidence(
-                e.target.value ? Number(e.target.value) : null
-              )
-            }
-            style={{ marginLeft: 10 }}
-          >
-            <option value="">Confidence</option>
-            {confidenceLevels.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+                      <Button
+                        disabled={speedSetting === 0}
+                        onClick={() => SetSpeedSetting(0)}
+                      >
+                        Default ({defaultGameSpeed})
+                      </Button>
 
-          {/* BIAS */}
-          <select
-            value={selectedBias ?? ""}
-            onChange={(e) =>
-              setSelectedBias(
-                e.target.value ? Number(e.target.value) : null
-              )
-            }
-            style={{ marginLeft: 10 }}
-          >
-            <option value="">Bias</option>
-            {biases.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
+                      <Button
+                        disabled={speedSetting === 1}
+                        onClick={() => SetSpeedSetting(1)}
+                      >
+                        2×
+                      </Button>
 
-          {/* RECALL TARGET — NEW */}
-          <select
-            value={selectedRecallTarget ?? ""}
-            onChange={(e) =>
-              setSelectedRecallTarget(
-                e.target.value ? Number(e.target.value) : null
-              )
-            }
-            style={{ marginLeft: 10 }}
-          >
-            <option value="">Recall Target</option>
-            {recallTargets.map((rt) => (
-              <option key={rt} value={rt}>
-                {rt}
-              </option>
-            ))}
-          </select>
+                      <Button
+                        disabled={speedSetting === 2}
+                        onClick={() => SetSpeedSetting(2)}
+                      >
+                        5×
+                      </Button>
+                    </ButtonGroup>
+                  </Stack>
+                </Grid>
+                <Grid container spacing={2} size={12} sx={{justifyContent:"center"}}>
+                  {/* <Button variant="contained" onClick={prevBatch}>
+                      Previous
+                  </Button>
+                  <Button variant="contained" onClick={nextBatch}>
+                    Next
+                  </Button> */}
+                  <Button
+                    variant="contained"
+                    disabled={!currentSetStarted}
+                    onClick={() => stopAuto()}
+                    color="error">
+                    Stop
+                  </Button>
+                  <Button 
+                    variant="contained"
+                    disabled={currentSetStarted}
+                    onClick={() => startAuto()}
+                    color="success">
+                    Start
+                  </Button>
+                  <Button variant="contained" onClick={() => HandleReset()} color="warning">
+                    Reset
+                  </Button>
+                </Grid>
+              </Stack>
+            )}
 
-          <button onClick={applyFilters} style={{ marginLeft: 10 }}>
-            Load
-          </button>
-        </div>
-      )}
-
-      {/* CHART */}
-      {chartData.length > 0 && (
-        <>
-          <h3 style={{ marginTop: 30 }}>
-            Batch: {currentBatch} / {filteredRows.length - 1}{" "}
-            {autoPlay && <span style={{ marginLeft: 10 }}>(Auto)</span>}
-          </h3>
-
-          {/* LIVE METRICS DISPLAY */}
-          {currentRow && (
-            <div
-              style={{
-                marginBottom: 20,
-                padding: 10,
-                background: "#f4f4f4",
-                borderRadius: 6,
-                width: 300,
-              }}
+            {/* <Modal
+              open={isModalOpen}
+              onClose={handleCloseModal}
+              aria-labelledby="parent-modal-title"
             >
-              <h4>Current Batch Values</h4>
-              <div>Seen: <b>{currentRow.n_seen}</b></div>
-              <div>Included: <b>{currentRow.n_incl_seen}</b></div>
-              <div>Score: <b>{currentRow.method_score.toFixed(4)}</b></div>
-            </div>
-          )}
-
-          <LineChart
-            width={850}
-            height={350}
-            data={chartData}
-          >
-            <YAxis yAxisId="seen"/>
-            <YAxis yAxisId="included_seen" orientation="right" />
-            <YAxis yAxisId="score" orientation="right" domain={[0, 1]} />
-
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="batch" />
-            <YAxis domain={[0, 1]} />
-            <Tooltip />
-            <Legend />
-
-            <Line
-              type="monotone"
-              dataKey="seen"
-              stroke="#8884d8"
-              isAnimationActive={false}
+              <SubmitModal 
+                currentRow={currentRow}
+                currentBatch={currentBatch}
+                dataset={selectedDataset}
+                method={selectedMethod}
+                confidenceLevel={selectedConfidence}
+                bias={selectedBias}
+                recallTarget={selectedRecallTarget}
+              />
+            </Modal> */}
+          </Grid>
+        </Stack>
+      </Grid>
+      <Grid size={3}>
+        <Stack spacing={1} >
+          {type === 1 ? <SessionLeaderboardCard /> : <></>}
+          {dataSets?.map((set, index)=> (
+            <SetInfoCard 
+              set={set}
+              result={results.find((res) => res.datasetId === set.id) ?? undefined}
+              isActive={index === currentSetIndex}
             />
-
-            <Line
-              type="monotone"
-              dataKey="included_seen"
-              stroke="#82ca9d"
-              isAnimationActive={false}
-            />
-
-            <Line
-              type="monotone"
-              dataKey="score"
-              stroke="#ff7300"
-              isAnimationActive={false}
-            />
-          </LineChart>
-
-          {/* CONTROLS */}
-          <div style={{ marginTop: 20 }}>
-            <button onClick={prevBatch}>Previous</button>
-            <button onClick={nextBatch} style={{ marginLeft: 10 }}>
-              Next
-            </button>
-            <button onClick={stopAuto} style={{ marginLeft: 10 }}>
-              Stop Auto
-            </button>
-            <button onClick={startAuto} style={{ marginLeft: 10 }}>
-              Start Auto
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+          ))}
+        </Stack>
+      </Grid>
+    </Grid>
   );
 };
 

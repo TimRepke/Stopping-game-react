@@ -7,7 +7,7 @@ import {
 } from "@reduxjs/toolkit/query/react";
 import { TagName, tagNames as tagTypes } from "../lib/tags";
 
-export const baseURL = import.meta.env.VITE_API_URL || '/api';
+export const baseURL = import.meta.env.API_URL || 'http://localhost:3000/';
 
 
 const baseQuery = fetchBaseQuery({
