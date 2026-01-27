@@ -182,7 +182,7 @@ const Chart = (props: Props) => {
             />
 
             <ReferenceLine
-              x={FinalData[lastRowIndex - 1].seen}
+              x={FinalData[lastRowIndex - 1]?.seen}
               stroke="#9e9e9e"
               strokeDasharray="3 3"
               label={{ value: "End", position: "top", fill: "#9e9e9e" }}

@@ -35,7 +35,11 @@ const StoppingGame: React.FC = () => {
 
   const { data: dataSets, isLoading: dataIsLoading } = useGetDatasetsQuery(setIds)
 
-  const [currentSet , setCurrentSet] = React.useState<DatasetT | null>(null)
+  // Current status of the dataset
+  // 0 == unseen, 1 == running, 2 == stopped
+  const [datasetModes, setDatasetModes] = React.useState<number[]>(setIds.map(() => 0));
+
+  const [currentSet, setCurrentSet] = React.useState<DatasetT | null>(null)
   const [resultViewOpen, setResultViewOpen] = React.useState<boolean>(false)
   const [currentSetStarted, setCurrentSetStarted] = React.useState<boolean>(false)
 
@@ -48,9 +52,9 @@ const StoppingGame: React.FC = () => {
   const [gameSpeed, setGameSpeed] = React.useState<number>(defaultGameSpeed);
   const [speedSetting, SetSpeedSetting] = React.useState<number>(0);
 
-  const [ SubmitMethod ] = useSubmitResultMutation()
+  const [SubmitMethod] = useSubmitResultMutation()
 
-  React.useEffect(()=>{
+  React.useEffect(() => {
     switch (speedSetting) {
       case 0:
         setGameSpeed(defaultGameSpeed)
@@ -71,24 +75,26 @@ const StoppingGame: React.FC = () => {
         setGameSpeed(defaultGameSpeed)
         break
     }
-  },[defaultGameSpeed, speedSetting])
+  }, [defaultGameSpeed, speedSetting])
 
 
   // if (currentSet !== null && !currentSet.rows) {
   //   return (<></>)
   // }
 
-  React.useEffect(()=>{
-    if (dataSets && !dataIsLoading){
+  React.useEffect(() => {
+    if (dataSets && !dataIsLoading) {
       setCurrentSet(dataSets[0])
       setCurrentRowIndex(0)
       setCurrentSetIndex(0)
       setLastRowIndex(currentSet?.rows?.length ?? 0)
     }
-  },[currentSet?.rows?.length, dataIsLoading, dataSets])
+  }, [currentSet?.rows?.length, dataIsLoading, dataSets])
 
   const stopAuto = () => {
     setAutoPlay(false)
+    datasetModes[currentSetIndex] = 2;
+    setDatasetModes(datasetModes);
     saveCurrentResults()
     setResultViewOpen(true)
   };
@@ -122,6 +128,8 @@ const StoppingGame: React.FC = () => {
     if (currentSet.rows.length > 0) {
       setCurrentSetStarted(true)
       setAutoPlay(true);
+      datasetModes[currentSetIndex] = 1;
+      setDatasetModes(datasetModes);
     }
   };
 
@@ -132,7 +140,7 @@ const StoppingGame: React.FC = () => {
   }
 
   return (
-    <Grid container spacing={2} padding={2} sx={{ justifyContent:"space-between" }}>
+    <Grid container spacing={2} padding={2} sx={{ justifyContent: "space-between" }}>
       <Grid size={9}>
         <Stack>
           <Grid spacing={2} padding={2}>
@@ -149,21 +157,22 @@ const StoppingGame: React.FC = () => {
                     currentSet.rows[currentRowIndex].n_seen / currentSet.rows[currentRowIndex].n_total
                   )}
                 />
+                {datasetModes[currentSetIndex] > 1 &&
+                  <ProgressBlock
+                    label="Included"
+                    current={currentSet.rows[currentRowIndex].n_incl_seen}
+                    total={currentSet.rows[currentRowIndex].n_incl}
+                    value={currentSet.rows[currentRowIndex].n_incl_seen / currentSet.rows[currentRowIndex].n_incl * 100}
+                    barColor={lerpColor(
+                      theme.palette.error.main,
+                      theme.palette.success.main,
+                      currentSet.rows[currentRowIndex].n_incl_seen / currentSet.rows[currentRowIndex].n_incl
+                    )}
+                  />}
 
-                <ProgressBlock
-                  label="Included"
-                  current={currentSet.rows[currentRowIndex].n_incl_seen}
-                  total={currentSet.rows[currentRowIndex].n_incl}
-                  value={currentSet.rows[currentRowIndex].n_incl_seen / currentSet.rows[currentRowIndex].n_incl * 100}
-                  barColor={lerpColor(
-                    theme.palette.error.main,
-                    theme.palette.success.main,
-                    currentSet.rows[currentRowIndex].n_incl_seen / currentSet.rows[currentRowIndex].n_incl
-                  )}
-                />
-
-                {dataSets && dataSets.map((set, index)=>(
+                {dataSets && dataSets.map((set, index) => (
                   index === currentSetIndex ? <Chart
+                    key={set.id}
                     data={set.rows ?? []}
                     currentRowIndex={currentRowIndex}
                     lastRowIndex={lastRowIndex}
@@ -171,8 +180,8 @@ const StoppingGame: React.FC = () => {
                     gameSpeed={gameSpeed}
                     autoPlay={autoPlay}
                     stopMethod={() => stopAuto()}
-                  />: <></>
-                ))  }
+                  /> : <></>
+                ))}
                 <Grid container justifyContent="center" padding={2}>
                   <Stack spacing={1} alignItems="center">
                     <Stack direction="row" spacing={1} alignItems="center">
@@ -233,7 +242,7 @@ const StoppingGame: React.FC = () => {
                     </ButtonGroup>
                   </Stack>
                 </Grid>
-                <Grid container spacing={2} size={12} sx={{justifyContent:"center"}}>
+                <Grid container spacing={2} size={12} sx={{ justifyContent: "center" }}>
                   {/* <Button variant="contained" onClick={prevBatch}>
                       Previous
                   </Button>
@@ -247,7 +256,7 @@ const StoppingGame: React.FC = () => {
                     color="error">
                     Stop
                   </Button>
-                  <Button 
+                  <Button
                     variant="contained"
                     disabled={currentSetStarted}
                     onClick={() => startAuto()}
@@ -264,30 +273,32 @@ const StoppingGame: React.FC = () => {
         </Stack>
       </Grid>
       <Grid size={3}>
-        <Stack spacing={1} >
+        <Stack spacing={1}>
           {type === 1 ? <SessionLeaderboardCard /> : <></>}
-          {dataSets?.map((set, index)=> (
-            <SetInfoCard 
+          {dataSets?.map((set, index) => (
+            <SetInfoCard
               set={set}
               result={results.find((res) => res.datasetId === set.id) ?? undefined}
+              state={datasetModes[index]}
               isActive={index === currentSetIndex}
+              key={set.id}
             />
           ))}
         </Stack>
       </Grid>
-      {currentSet 
-        && currentSet.rows 
-        && results.length 
-        && results[currentSetIndex] 
-        && <ResultsModal 
-        open={resultViewOpen} 
-        onClose={() => setResultViewOpen(false)}
-        HandleNext={() => HandleNext()}
-        HandleSubmit={() => HandleSubmit()}
-        results={results[currentSetIndex]}
-        data={currentSet.rows[currentRowIndex]} 
-        isLastSet={dataSets?.length === (currentSetIndex + 1)}
-      />}
+      {currentSet
+        && currentSet.rows
+        && results.length
+        && results[currentSetIndex]
+        && <ResultsModal
+          open={resultViewOpen}
+          onClose={() => setResultViewOpen(false)}
+          HandleNext={() => HandleNext()}
+          HandleSubmit={() => HandleSubmit()}
+          results={results[currentSetIndex]}
+          data={currentSet.rows[currentRowIndex]}
+          isLastSet={dataSets?.length === (currentSetIndex + 1)}
+        />}
     </Grid>
   );
 };

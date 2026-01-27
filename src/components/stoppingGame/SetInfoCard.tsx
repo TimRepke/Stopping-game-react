@@ -16,26 +16,29 @@ type Props = {
   isActive: boolean;
   set: DatasetT;
   result: resultT | undefined;
+  state: number;
 };
 
-const SetInfoCard = ({
-  isActive,
-  set,
-  result,
-}: Props) => {
+const SetInfoCard = (
+  {
+    isActive,
+    set,
+    state,
+    result,
+  }: Props) => {
 
-  const {data} = useGetLeaderboardQuery()
+  const { data } = useGetLeaderboardQuery()
   if (!data) return;
 
   const userUID = getOrCreateUserId()
   const sortedData = data
     .filter((val) => val.datasetId === set.id)
-    .filter((v,i) => i<3)
+    .filter((v, i) => i < 3)
     .map((val) => ({
       playerName: val.username,
       dataset: val.datasetName,
       score: val.score
-      }))
+    }))
     .sort(
       (a, b) => b.score - a.score
     );
@@ -84,14 +87,15 @@ const SetInfoCard = ({
             </Typography>
           </Grid>
 
-          <Grid size={4}>
-            <Typography variant="caption" color="text.secondary">
-              Included
-            </Typography>
-            <Typography variant="body2">
-              {set.rows ? set.rows[0].n_incl : 0}
-            </Typography>
-          </Grid>
+          {state > 1 &&
+            <Grid size={4}>
+              <Typography variant="caption" color="text.secondary">
+                Included
+              </Typography>
+              <Typography variant="body2">
+                {set.rows ? set.rows[0].n_incl : 0}
+              </Typography>
+            </Grid>}
 
           <Grid size={4}>
             <Typography variant="caption" color="text.secondary">
@@ -131,7 +135,7 @@ const SetInfoCard = ({
 
               <Stack spacing={1}>
                 {!sortedData ? <>No scores for this Data set yet</> : sortedData.map((entry, index) => (
-                  <SetTopScores userName={entry.playerName} score={entry.score} index={index}/>
+                  <SetTopScores userName={entry.playerName} score={entry.score} index={index} key={index} />
                 ))}
               </Stack>
             </Box>
@@ -139,7 +143,8 @@ const SetInfoCard = ({
         </Collapse>
       </Stack>
     </Paper>
-  );
+  )
+    ;
 };
 
 export default SetInfoCard;

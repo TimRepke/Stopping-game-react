@@ -183,7 +183,7 @@ const GameSetup = () => {
             <TableBody>
               {dataSets.map((set, index) => (
                 <TableRow
-                  key={index}
+                  key={set.id}
                   sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                 >
                   <TableCell align="left">{set.dataset ?? "-"}</TableCell>
