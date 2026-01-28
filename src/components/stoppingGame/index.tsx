@@ -159,7 +159,6 @@ const StoppingGame: React.FC = () => {
 
   return (
     <Grid container spacing={2} padding={2} sx={{ justifyContent: "space-between" }}>
-      {currentSetIndex}
       <Grid size={9}>
         <Stack>
           <Grid spacing={2} padding={2}>
